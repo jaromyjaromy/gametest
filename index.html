@@ -1,0 +1,1593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>16-bit Adventure Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #0c0a1f; font-family: 'Press Start 2P', cursive; touch-action: none; }
+        canvas { display: block; }
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #f43f5e; }
+        .mute-button {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.5);
+            border: 2px solid white;
+            color: white;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 10px;
+            border-radius: 4px;
+        }
+        .mute-button:hover {
+            background: rgba(0, 0, 0, 0.7);
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <!-- Audio element for menu music -->
+    <audio id="menuMusic" loop>
+        <source src="menu_music.wav" type="audio/wav">
+    </audio>
+
+    <script type="text/babel">
+        const { useEffect, useRef, useCallback, useState } = React;
+
+        /** * GLOBAL CONSTANTS & SHARED RENDERERS 
+         */
+        const GROUND_HEIGHT_BASE = 120;
+        const PLAYER_SIZE_BASE = 80;
+
+        const GameStatus = {
+            MENU: 'MENU', SELECT_CHAR: 'SELECT_CHAR', STORY_INTRO: 'STORY_INTRO',
+            PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER', LEVEL_COMPLETE: 'LEVEL_COMPLETE',
+            STORY_INTERSTITIAL: 'STORY_INTERSTITIAL', PIZZA_DECISION: 'PIZZA_DECISION',
+            MOUNTAIN_INSTRUCTIONS: 'MOUNTAIN_INSTRUCTIONS', POST_MOUNTAIN_STORY: 'POST_MOUNTAIN_STORY',
+            LEVEL_3_PRE_SELECT: 'LEVEL_3_PRE_SELECT', LEVEL_3_CHAR_SELECT: 'LEVEL_3_CHAR_SELECT',
+            LEVEL_SELECT: 'LEVEL_SELECT', DATING_BEGINS: 'DATING_BEGINS', 
+            SAIPAN_PRE_INTRO: 'SAIPAN_PRE_INTRO', SAIPAN_INTRO: 'SAIPAN_INTRO',
+            BALI_COMPLETE: 'BALI_COMPLETE', KBBQ_INTRO: 'KBBQ_INTRO'
+        };
+
+        const drawPixelRect = (ctx, x, y, w, h, color, shadowColor, outline = true) => {
+            if (outline) { ctx.fillStyle = '#000'; ctx.fillRect(x - 2, y - 2, w + 4, h + 4); }
+            ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
+            if (shadowColor) {
+                ctx.fillStyle = shadowColor;
+                ctx.fillRect(x + (w * 0.6), y, w * 0.4, h);
+                ctx.fillRect(x, y + (h * 0.7), w, h * 0.3);
+            }
+        };
+
+        const renderCharacterBase = (ctx, char, frame = 0, isFallingAsleep = false, noGlasses = false) => {
+            const skin = '#ffd6cc';
+            const skinShadow = '#e0b3a8';
+            if (char === 'male') {
+                drawPixelRect(ctx, 30, 60, 40, 40, '#2563eb', '#1e40af');
+                drawPixelRect(ctx, 30, 20, 40, 40, skin, skinShadow);
+                if (noGlasses) {
+                    ctx.fillStyle = '#000'; 
+                    ctx.fillRect(38, 38, 6, 6); 
+                    ctx.fillRect(56, 38, 6, 6);
+                } else {
+                    ctx.fillStyle = '#000'; ctx.fillRect(31, 31, 14, 12); ctx.fillRect(55, 31, 14, 12); ctx.fillRect(45, 34, 10, 3);
+                    ctx.fillStyle = skin; ctx.fillRect(34, 34, 8, 6); ctx.fillRect(58, 34, 8, 6);
+                }
+            } else {
+                const hairColor = '#222'; const hairShadow = '#000';
+                drawPixelRect(ctx, 24, 16, 52, 6, hairColor, hairShadow);
+                drawPixelRect(ctx, 18, 22, 64, 38, hairColor, hairShadow);
+                drawPixelRect(ctx, 18, 60, 15, 10, hairColor, hairShadow);
+                drawPixelRect(ctx, 67, 60, 15, 10, hairColor, hairShadow);
+                const faceX = 30; const faceY = 28; const faceW = 40; const faceH = 38;
+                ctx.fillStyle = '#000'; ctx.fillRect(faceX - 2, faceY + 2, faceW + 4, faceH - 4); ctx.fillRect(faceX + 2, faceY - 2, faceW - 4, faceH + 4);
+                ctx.fillStyle = skin; ctx.fillRect(faceX, faceY, faceW, faceH);
+                ctx.fillStyle = hairColor; ctx.fillRect(faceX, faceY, 4, 4); ctx.fillRect(faceX + faceW - 4, faceY, 4, 4);
+                ctx.fillStyle = skinShadow; ctx.fillRect(faceX + faceW - 12, faceY + 20, 12, 18);
+                ctx.fillStyle = '#000';
+                let eyeHeight = 6;
+                if (isFallingAsleep) {
+                    const cycle = frame % 120;
+                    if (cycle < 60) eyeHeight = Math.max(1, 6 - Math.floor(cycle / 12));
+                    else if (cycle < 90) eyeHeight = 1; else eyeHeight = 6;
+                }
+                const eyeY = 44 + (6 - eyeHeight) / 2;
+                ctx.fillRect(38, eyeY, 6, eyeHeight); ctx.fillRect(56, eyeY, 6, eyeHeight); 
+                drawPixelRect(ctx, 30, 66, 40, 34, '#334155', '#1e293b');
+            }
+        };
+
+        const drawAvatar = (ctx, x, y, char, frame, isNPC, scale, isFallingAsleep = false, sizeBase = 80, isCelebrating = false) => {
+            ctx.save(); ctx.translate(x, y); const s = (sizeBase / 100) * scale; ctx.scale(s, s); ctx.translate(-50, 0); 
+            const bounce = (isNPC || isCelebrating) && !isFallingAsleep ? (Math.floor(frame / 10) % 2) * 12 : 0;
+            ctx.translate(0, bounce); renderCharacterBase(ctx, char, frame, isFallingAsleep); ctx.restore();
+        };
+
+        /**
+         * LEVEL LIBRARY: Modular Level Definitions
+         */
+        const LevelLibrary = {
+            platformer: {
+                getGroundY: (worldX, levelNum, height, scaleFactor, groundHeight) => {
+                    if (levelNum === 2) {
+                        const startY = height - (350 * scaleFactor);
+                        return startY + (worldX * 0.12);
+                    }
+                    return height - groundHeight;
+                },
+                update: (context) => {
+                    const { player, config, setGameState, isCelebrating, getGroundY, scaleFactor, dimensions, PLAYER_SIZE } = context;
+                    if (isCelebrating.current) return;
+
+                    player.vy += config.gravity;
+                    player.y += player.vy;
+                    player.worldX += config.scrollSpeed * scaleFactor;
+                    
+                    const gY = getGroundY(player.worldX);
+                    const playerBottom = player.y + (PLAYER_SIZE * config.charScale);
+                    
+                    if (playerBottom >= gY) {
+                        player.y = gY - (PLAYER_SIZE * config.charScale);
+                        player.vy = 0;
+                    }
+
+                    let accX = 0;
+                    const centerX = dimensions.width / 2;
+                    config.segments.forEach(seg => {
+                        const obsX = accX + seg.length / 2;
+                        if (seg.type === 'obstacle') {
+                            const screenObsX = obsX - player.worldX + centerX;
+                            const obsY = getGroundY(obsX);
+                            if (Math.abs(screenObsX - centerX) < 40 * scaleFactor && playerBottom > obsY - (30 * scaleFactor)) {
+                                setGameState(prev => ({ ...prev, status: GameStatus.GAMEOVER, deathReason: 'obstacle' }));
+                            }
+                            if (!player.passedObstacles.has(seg.id) && player.worldX > obsX) {
+                                player.passedObstacles.add(seg.id);
+                                setGameState(prev => ({ ...prev, score: prev.score + 100 }));
+                            }
+                        }
+                        accX += seg.length;
+                    });
+
+                    const totalWidth = config.segments.reduce((a, b) => a + b.length, 0);
+                    const stopOffset = (context.gameState.levelNumber === 2 ? 300 : 600) * scaleFactor;
+                    if (player.worldX > totalWidth - stopOffset) {
+                        isCelebrating.current = true;
+                        player.worldX = totalWidth - stopOffset;
+                        setTimeout(() => {
+                            const level = getLevel(context.gameState.levelNumber);
+                            if (level.nextLevelStory) {
+                                setGameState(s => ({ ...s, status: `LEVEL_${s.levelNumber}_COMPLETE_STORY` }));
+                            } else {
+                                setGameState(s => ({ ...s, status: GameStatus.LEVEL_COMPLETE }));
+                            }
+                        }, 5000);
+                    }
+                },
+                draw: (ctx, context) => {
+                    const { dimensions, player, config, getGroundY, scaleFactor, gameState, isCelebrating, PLAYER_SIZE } = context;
+                    const { width, height } = dimensions;
+                    const centerX = width / 2;
+                    const centerY = height / 2;
+
+                    if (gameState.levelNumber === 1) {
+                        const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
+                        skyGrad.addColorStop(0, '#020617'); skyGrad.addColorStop(1, '#4c1d95');
+                        ctx.fillStyle = skyGrad; ctx.fillRect(0, 0, width, height);
+                    } else {
+                        const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
+                        skyGrad.addColorStop(0, '#bae6fd'); skyGrad.addColorStop(1, '#fef9c3');
+                        ctx.fillStyle = skyGrad; ctx.fillRect(0, 0, width, height);
+                    }
+
+                    const cameraOffset = gameState.levelNumber === 1 ? 0 : centerY - (player.y + (PLAYER_SIZE * config.charScale) / 2);
+                    let accX = 0;
+                    config.segments.forEach(seg => {
+                        const xStart = accX - player.worldX + centerX;
+                        const yStart = getGroundY(accX);
+                        const xEnd = xStart + seg.length;
+                        const yEnd = getGroundY(accX + seg.length);
+
+                        ctx.fillStyle = config.primaryColor;
+                        ctx.beginPath();
+                        ctx.moveTo(xStart, yStart + cameraOffset);
+                        ctx.lineTo(xEnd, yEnd + cameraOffset);
+                        ctx.lineTo(xEnd, yEnd + cameraOffset + 1000);
+                        ctx.lineTo(xStart, yStart + cameraOffset + 1000);
+                        ctx.fill();
+
+                        ctx.fillStyle = config.shadowColor;
+                        for (let i = 0; i < seg.length; i += 60 * scaleFactor) {
+                            const ty = getGroundY(accX + i);
+                            ctx.fillRect(xStart + i, ty + cameraOffset - 4, 8 * scaleFactor, 4);
+                        }
+
+                        if (seg.type === 'obstacle') {
+                            const midX = accX + seg.length / 2;
+                            const drawX = xStart + seg.length / 2;
+                            const drawY = getGroundY(midX) + cameraOffset;
+                            if (seg.obstacleType === 'tree') {
+                                ctx.save(); ctx.translate(drawX, drawY); ctx.scale(scaleFactor, scaleFactor);
+                                drawPixelRect(ctx, -10, -30, 20, 30, '#78350f', '#451a03');
+                                ctx.fillStyle = '#065f46'; ctx.beginPath(); ctx.moveTo(0, -90); ctx.lineTo(-40, -30); ctx.lineTo(40, -30); ctx.fill(); ctx.restore();
+                            } else {
+                                ctx.save(); ctx.translate(drawX, drawY); ctx.scale(scaleFactor, scaleFactor);
+                                ctx.translate(0, -(Math.floor(player.frame / 8) % 2) * 15 - 35);
+                                drawPixelRect(ctx, -35, 0, 70, 50, '#ffffff', '#cbd5e1'); ctx.restore();
+                            }
+                        }
+                        if (seg.hasPartner) {
+                            const pRelX = seg.length - (450 * scaleFactor);
+                            const pX = xStart + pRelX; const pY = getGroundY(accX + pRelX) - (PLAYER_SIZE * config.charScale) + cameraOffset;
+                            drawAvatar(ctx, pX, pY, gameState.character === 'male' ? 'female' : 'male', player.frame, true, config.charScale, false, PLAYER_SIZE, isCelebrating.current);
+                            if (isCelebrating.current) {
+                                const pulse = Math.sin(player.frame * 0.1) * 0.4;
+                                ctx.save(); ctx.translate((centerX + pX) / 2, pY - (120 * scaleFactor));
+                                ctx.scale(3.0 * scaleFactor + pulse, 3.0 * scaleFactor + pulse);
+                                ctx.fillStyle = '#ef4444'; ctx.fillRect(-10, -5, 8, 5); ctx.fillRect(2, -5, 8, 5); ctx.fillRect(-12, 0, 24, 8);
+                                ctx.fillRect(-10, 8, 20, 6); ctx.fillRect(-6, 14, 12, 6); ctx.fillRect(-2, 20, 4, 4); ctx.restore();
+                            }
+                        }
+                        if (seg.hasFebreze) {
+                            ctx.save(); ctx.translate(xStart + seg.length - (200 * scaleFactor), getGroundY(accX + seg.length - (200 * scaleFactor)) + cameraOffset - (90 * scaleFactor));
+                            ctx.scale(scaleFactor, scaleFactor);
+                            drawPixelRect(ctx, -20, 30, 40, 60, '#94a3b8', '#475569');
+                            drawPixelRect(ctx, -20, 10, 40, 20, '#2563eb', '#1e3a8a'); ctx.restore();
+                        }
+                        accX += seg.length;
+                    });
+                    drawAvatar(ctx, centerX, player.y + cameraOffset, gameState.character, player.frame, false, config.charScale, false, PLAYER_SIZE, isCelebrating.current);
+                }
+            },
+            catching: {
+                update: (context) => {
+                    const { player, targetX, entities, dimensions, scaleFactor, setGameState, isCelebrating } = context;
+                    if (isCelebrating.current) return;
+                    player.x += (targetX.current - player.x) * 0.15;
+                    player.x = Math.max(50 * scaleFactor, Math.min(dimensions.width - 50 * scaleFactor, player.x));
+                    if (player.frame % 35 === 0) {
+                        entities.current.push({ id: Date.now(), x: Math.random() * (dimensions.width - 100) + 50, y: -80, speed: (4 + Math.random() * 4) * (scaleFactor * 1.5) });
+                    }
+                },
+                draw: (ctx, context) => {
+                    const { dimensions, scaleFactor, player, entities, gameState, setGameState, isCelebrating, PLAYER_SIZE } = context;
+                    const { width, height } = dimensions;
+                    ctx.fillStyle = '#1e1b4b'; ctx.fillRect(0, 0, width, height);
+                    ctx.fillStyle = '#0f172a'; ctx.beginPath(); ctx.moveTo(0, height * 0.55); ctx.lineTo(width, height * 0.7); ctx.lineTo(width, height); ctx.lineTo(0, height); ctx.fill();
+                    ctx.fillStyle = '#271104'; ctx.fillRect(0, height - (100 * scaleFactor), width, 100 * scaleFactor);
+
+                    entities.current = entities.current.filter(p => {
+                        if (!isCelebrating.current) p.y += p.speed;
+                        ctx.save(); ctx.translate(p.x, p.y); ctx.scale(scaleFactor * 2, scaleFactor * 2);
+                        ctx.fillStyle = '#92400e'; ctx.beginPath(); ctx.moveTo(0, 5); ctx.lineTo(-24, -45); ctx.lineTo(24, -45); ctx.closePath(); ctx.fill();
+                        ctx.fillStyle = '#fde047'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-18, -40); ctx.lineTo(18, -40); ctx.closePath(); ctx.fill();
+                        ctx.fillStyle = '#ef4444'; ctx.fillRect(-6, -32, 6, 6); ctx.fillRect(4, -22, 6, 6); ctx.fillRect(-2, -15, 6, 6);
+                        ctx.restore();
+
+                        const charY = height - (150 * scaleFactor);
+                        if (Math.abs(p.x - player.x) < 80 * scaleFactor && Math.abs(p.y - charY) < 60 * scaleFactor && !isCelebrating.current) {
+                            setGameState(prev => {
+                                const newVal = prev.pizzasCaught + 1;
+                                const goal = prev.character === 'male' ? 20 : 4;
+                                if (newVal >= goal) {
+                                    isCelebrating.current = true;
+                                    const level = getLevel(gameState.levelNumber);
+                                    setTimeout(() => {
+                                        if (level.nextLevelStory) {
+                                            setGameState(s => ({ ...s, status: `LEVEL_${s.levelNumber}_COMPLETE_STORY` }));
+                                        } else {
+                                            setGameState(s => ({ ...s, status: GameStatus.LEVEL_COMPLETE }));
+                                        }
+                                    }, 2500);
+                                }
+                                return { ...prev, pizzasCaught: newVal, score: prev.score + 10 };
+                            });
+                            return false;
+                        }
+                        return p.y < height + 100;
+                    });
+                    const charY = height - (100 * scaleFactor) - (PLAYER_SIZE * context.config.charScale);
+                    drawAvatar(ctx, player.x, charY, gameState.character, player.frame, false, context.config.charScale, false, PLAYER_SIZE, isCelebrating.current);
+                }
+            },
+            wakeup: {
+                update: (context) => {
+                    const { player, entities, dimensions } = context;
+                    if (player.frame % 30 === 0) {
+                        entities.current.push({ id: Math.random(), x: dimensions.width/2 + (Math.random()*40-20), y: dimensions.height/2 - 50, vx: (Math.random()-0.5)*2, vy: -1.5 - Math.random()*2, opacity: 1 });
+                    }
+                },
+                draw: (ctx, context) => {
+                    const { dimensions, scaleFactor, entities, player } = context;
+                    const { width, height } = dimensions;
+                    const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
+                    skyGrad.addColorStop(0, '#f97316'); skyGrad.addColorStop(1, '#fef3c7');
+                    ctx.fillStyle = skyGrad; ctx.fillRect(0, 0, width, height);
+                    ctx.fillStyle = '#94a3b8'; ctx.fillRect(0, height * 0.7, width, height * 0.3);
+
+                    entities.current = entities.current.filter(z => {
+                        z.x += z.vx; z.y += z.vy; z.opacity -= 0.005;
+                        ctx.save(); ctx.globalAlpha = z.opacity; ctx.fillStyle = '#fff';
+                        ctx.font = `${24 * scaleFactor}px "Press Start 2P"`; ctx.fillText('Z', z.x, z.y); ctx.restore();
+                        return z.opacity > 0;
+                    });
+                    drawAvatar(ctx, width/2, height/2, 'female', player.frame, true, context.config.charScale, true, context.PLAYER_SIZE);
+                }
+            },
+            bike_chase: {
+                update: (context) => {
+                    const { player, scaleFactor, baliHat, setGameState } = context;
+                    player.worldX += 6 * scaleFactor;
+                    const hat = baliHat.current;
+                    const seconds = player.frame / 60;
+                    if (hat.state === 'attached' && seconds >= 15) {
+                        hat.state = 'flying';
+                        hat.flyTimer = player.frame;
+                    }
+                    if (hat.state === 'flying') {
+                        const elapsed = player.frame - hat.flyTimer;
+                        const elapsedSec = elapsed / 60;
+                        if (elapsedSec >= 5) {
+                            hat.velocityX -= 0.5 * scaleFactor;
+                            hat.floatX += hat.velocityX;
+                            if (hat.screenX < -100) setGameState(prev => ({ ...prev, status: GameStatus.GAMEOVER, deathReason: 'hat_lost' }));
+                        }
+                    }
+                    if (hat.state === 'saved' && (player.frame - hat.saveTimer) > 300) {
+                        setGameState(s => ({ ...s, status: GameStatus.LEVEL_COMPLETE }));
+                    }
+                },
+                draw: (ctx, context) => {
+                    const { dimensions, player, scaleFactor, baliHat } = context;
+                    const { width, height } = dimensions;
+                    const hat = baliHat.current;
+                    const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
+                    skyGrad.addColorStop(0, '#064e3b'); skyGrad.addColorStop(1, '#065f46'); 
+                    ctx.fillStyle = skyGrad; ctx.fillRect(0, 0, width, height);
+
+                    for (let i = 0; i < 3; i++) {
+                        const layerColor = i === 0 ? '#022c22' : (i === 1 ? '#064e3b' : '#065f46');
+                        const speed = (i + 1) * 1.5;
+                        const offset = (player.worldX * speed * 0.1) % width;
+                        ctx.fillStyle = layerColor; ctx.beginPath(); ctx.moveTo(-offset, height);
+                        for(let x = 0; x <= width * 2; x += 100 * scaleFactor) {
+                            ctx.lineTo(x - offset, height - (250 + i * 80 + Math.sin(x/100 + player.frame/100) * 20));
+                            ctx.lineTo(x + 50 * scaleFactor - offset, height - (350 + i * 80));
+                        }
+                        ctx.lineTo(width * 2, height); ctx.fill();
+                    }
+
+                    [0.2, 0.8, 0.5].forEach((mX, idx) => {
+                        const x = (width + 100) - ((player.worldX * 0.5 + (idx * 500)) % (width + 200));
+                        ctx.save(); ctx.translate(x, height * (0.35 + idx*0.05)); ctx.scale(scaleFactor * (0.8 + idx*0.1), scaleFactor * (0.8 + idx*0.1));
+                        const anim = Math.sin(player.frame * 0.1) * 5;
+                        ctx.strokeStyle = '#92400e'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, 20); ctx.quadraticCurveTo(-20, 30, -10 + anim, 40); ctx.stroke();
+                        drawPixelRect(ctx, -15, -10, 30, 35, '#92400e', '#78350f'); drawPixelRect(ctx, -12, -25, 24, 22, '#92400e', '#78350f');
+                        drawPixelRect(ctx, -8, -20, 16, 12, '#fdba74', null, false); ctx.fillStyle = '#000'; ctx.fillRect(-5, -16, 2, 3); ctx.fillRect(3, -16, 2, 3);
+                        drawPixelRect(ctx, -18, -22, 6, 6, '#92400e', null); drawPixelRect(ctx, 12, -22, 6, 6, '#92400e', null); ctx.restore();
+                    });
+
+                    ctx.fillStyle = '#78350f'; ctx.fillRect(0, height * 0.7, width, height * 0.3);
+                    ctx.fillStyle = '#451a03'; const rdOff = (player.worldX * 8) % 200;
+                    for (let x = -200; x < width + 200; x += 100) { ctx.fillRect(x - rdOff, height * 0.75 + Math.sin(x) * 10, 10, 4); }
+
+                    const bikeX = width / 2; const bikeY = height * 0.78; const bounce = Math.sin(player.frame * 0.25) * 4;
+                    const bikeScale = scaleFactor * 1.6;
+
+                    ctx.save(); ctx.translate(bikeX, bikeY + bounce); ctx.scale(bikeScale, bikeScale);
+                    const drawWheel = (ctx, x, y) => { ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(x+28, y+28, 28, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = '#334155'; ctx.beginPath(); ctx.arc(x+28, y+28, 14, 0, Math.PI*2); ctx.fill(); };
+                    drawWheel(ctx, -85, 0); drawWheel(ctx, 18, 0);
+                    drawPixelRect(ctx, -35, -5, 60, 25, '#475569', '#1e293b'); drawPixelRect(ctx, -50, -15, 80, 15, '#e11d48', '#9f1239');
+                    ctx.restore();
+
+                    ctx.save(); ctx.translate(bikeX - (68 * bikeScale), (bikeY + bounce) - (110 * bikeScale)); ctx.scale(bikeScale, bikeScale); renderCharacterBase(ctx, 'female', player.frame); ctx.restore();
+                    ctx.save(); ctx.translate(bikeX - (20 * bikeScale), (bikeY + bounce) - (115 * bikeScale)); ctx.scale(bikeScale, bikeScale); renderCharacterBase(ctx, 'male', player.frame); ctx.restore();
+
+                    if (hat.state !== 'gone') {
+                        ctx.save();
+                        if (hat.state === 'attached' || hat.state === 'saved') {
+                            hat.screenX = bikeX + ((-68 + 50) * bikeScale); hat.screenY = (bikeY + bounce) + ((-110 + 15) * bikeScale);
+                        } else if (hat.state === 'flying') {
+                            const el = player.frame - hat.flyTimer; const elS = el / 60;
+                            const startX = bikeX + ((-68 + 50) * bikeScale); const startY = (bikeY + bounce) + ((-110 + 15) * bikeScale);
+                            if (elS < 5) { hat.floatY = -280 * scaleFactor * (Math.min(1, elS * 2)); hat.floatX = Math.sin(el * 0.05) * 40 * scaleFactor; }
+                            hat.screenX = startX + hat.floatX; hat.screenY = startY + hat.floatY;
+                        }
+                        ctx.translate(hat.screenX, hat.screenY);
+                        const hW = 65 * scaleFactor; const hH = 8 * scaleFactor; const dR = 24 * scaleFactor;
+                        ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(0, 0, hW + 3, hH + 2, 0, 0, Math.PI * 2); ctx.fill();
+                        ctx.fillStyle = '#fde047'; ctx.beginPath(); ctx.ellipse(0, 0, hW, hH, 0, 0, Math.PI * 2); ctx.fill();
+                        ctx.beginPath(); ctx.arc(0, -5 * scaleFactor, dR, Math.PI, 0); ctx.fill();
+                        ctx.fillStyle = '#f43f5e'; ctx.fillRect(-dR, -8 * scaleFactor, dR * 2, 6 * scaleFactor);
+                        ctx.restore();
+                    }
+                }
+            },
+            soju_ceremony: {
+                update: (context) => {
+                    const { player, setGameState, dimensions, scaleFactor } = context;
+                    
+                    // Logic Loop
+                    player.ritualTimer++;
+                    
+                    // Animation timing: Dad's glass takes 60 frames to reach Romy's head
+                    const DAD_GLASS_ANIMATION_DURATION = 60;
+                    const CHEERS_WINDOW_START = 300;
+                    const DAD_GLASS_REACHES_ROMY = CHEERS_WINDOW_START + DAD_GLASS_ANIMATION_DURATION; // 360
+                    const CHEERS_TIMEOUT = DAD_GLASS_REACHES_ROMY + 300; // 5 seconds (300 frames) after glass reaches Romy
+                    
+                    if (player.ritualState === 'WAITING') {
+                        if (player.ritualTimer > CHEERS_WINDOW_START) {
+                            player.ritualState = 'CHEERS_WINDOW';
+                        }
+                    } else if (player.ritualState === 'CHEERS_WINDOW') {
+                        // Check timeout: 5 seconds after Dad's glass reaches Romy's head
+                        if (player.ritualTimer > CHEERS_TIMEOUT) {
+                            setGameState(prev => ({ ...prev, status: GameStatus.GAMEOVER, deathReason: 'YOU NEED TO CHEERS!' }));
+                        }
+                    } else if (player.ritualState === 'EATING') {
+                        const MEAT_ANIMATION_DURATION = 150;
+                        const eatingStartTime = player.jamesGlassClickTime || 0;
+                        const meatClickTime = player.meatClickTime;
+                        
+                        // Check if meat animation is complete
+                        if (meatClickTime !== null && meatClickTime !== undefined) {
+                            const elapsedSinceMeatClick = player.ritualTimer - meatClickTime;
+                            if (elapsedSinceMeatClick >= MEAT_ANIMATION_DURATION) {
+                                // Meat animation complete, transition to COMPLETE
+                                player.ritualState = 'COMPLETE';
+                                const level = context.config; // level config is already in context
+                                setGameState(s => ({ ...s, ritualMessage: level.completionText || 'YOU MASTERED KBBQ' }));
+                                setTimeout(() => {
+                                    if (level.nextLevelStory) {
+                                        setGameState(s => ({ ...s, status: `LEVEL_${s.levelNumber}_COMPLETE_STORY` }));
+                                    } else {
+                                        setGameState(s => ({ ...s, status: GameStatus.LEVEL_COMPLETE }));
+                                    }
+                                }, 2000);
+                            }
+                        } else {
+                            // No meat clicked yet - check timeout
+                            // Timeout: 5 seconds after Dad's meat animation completes (eatingStartTime + 150 + 300)
+                            const eatingTimeout = eatingStartTime + MEAT_ANIMATION_DURATION + 300;
+                            if (player.ritualTimer > eatingTimeout) {
+                                setGameState(prev => ({ ...prev, status: GameStatus.GAMEOVER, deathReason: 'YOU NEED TO EAT AFTER DRINKING' }));
+                            }
+                        }
+                    }
+                },
+                draw: (ctx, context) => {
+                    const { dimensions, scaleFactor, player } = context;
+                    context.hitZones = drawLevel6(ctx, dimensions.width, dimensions.height, scaleFactor, player.frame, player.ritualState, player.ritualTimer, player);
+                }
+            },
+            letter_catch: {
+                update: (context) => {
+                    const { player, targetX, entities, dimensions, scaleFactor, setGameState, isCelebrating, config } = context;
+                    if (isCelebrating.current) return;
+
+                    // Move player horizontally
+                    player.x += (targetX.current - player.x) * 0.15;
+                    player.x = Math.max(50 * scaleFactor, Math.min(dimensions.width - 50 * scaleFactor, player.x));
+
+                    const targetWord = config.targetWord || "CANADA";
+                    
+                    // Spawn falling letters
+                    if (player.frame % 60 === 0) {
+                        const randomLetter = targetWord[Math.floor(Math.random() * targetWord.length)];
+                        entities.current.push({
+                            id: Date.now() + Math.random(),
+                            letter: randomLetter,
+                            x: Math.random() * (dimensions.width - 100) + 50,
+                            y: -60,
+                            speed: (3 + Math.random() * 2) * scaleFactor
+                        });
+                    }
+
+                    // Update falling letters and check collisions
+                    entities.current = entities.current.filter(letter => {
+                        letter.y += letter.speed;
+
+                        // Check collision with player (updated to match new higher position)
+                        const playerX = player.x;
+                        const playerY = dimensions.height - 200 * scaleFactor; // Updated from 150 to 200
+                        const letterSize = 40 * scaleFactor;
+                        const playerWidth = 80 * config.charScale * scaleFactor;
+
+                        if (letter.y + letterSize > playerY && 
+                            letter.y < playerY + 100 * scaleFactor &&
+                            letter.x + letterSize > playerX - playerWidth/2 &&
+                            letter.x < playerX + playerWidth/2) {
+                            
+                            // Check if this is the next letter we need
+                            const currentProgress = player.collectedWord || "";
+                            const nextNeededLetter = targetWord[currentProgress.length];
+                            
+                            if (letter.letter === nextNeededLetter) {
+                                player.collectedWord = currentProgress + letter.letter;
+                                
+                                // Check if word is complete
+                                if (player.collectedWord === targetWord) {
+                                    isCelebrating.current = true;
+                                    setTimeout(() => {
+                                        const level = config;
+                                        if (level.nextLevelStory) {
+                                            setGameState(s => ({ ...s, status: `LEVEL_${s.levelNumber}_COMPLETE_STORY` }));
+                                        } else {
+                                            setGameState(s => ({ ...s, status: GameStatus.LEVEL_COMPLETE }));
+                                        }
+                                    }, 3000);
+                                }
+                            }
+                            return false; // Remove the letter
+                        }
+
+                        // Remove if off screen
+                        return letter.y < dimensions.height + 100;
+                    });
+                },
+                draw: (ctx, context) => {
+                    const { dimensions, scaleFactor, player, entities, gameState, config, PLAYER_SIZE, isCelebrating } = context;
+                    const { width, height } = dimensions;
+
+                    // Canada-themed background with detailed Toronto skyline
+                    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+                    gradient.addColorStop(0, '#4A90E2'); // Deeper sky blue
+                    gradient.addColorStop(0.5, '#87CEEB'); // Sky blue
+                    gradient.addColorStop(0.8, '#B0E0E6'); // Powder blue
+                    gradient.addColorStop(1, '#E6F3FF'); // Very light blue
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, width, height);
+
+                    // Draw animated clouds
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                    const cloudOffset = (player.frame * 0.2) % (width + 200);
+                    for (let i = 0; i < 4; i++) {
+                        const cloudX = (width / 4) * i - cloudOffset + 100;
+                        const cloudY = 60 * scaleFactor + i * 30 * scaleFactor;
+                        // Cloud shape with multiple circles
+                        ctx.beginPath();
+                        ctx.arc(cloudX, cloudY, 20 * scaleFactor, 0, Math.PI * 2);
+                        ctx.arc(cloudX + 25 * scaleFactor, cloudY, 25 * scaleFactor, 0, Math.PI * 2);
+                        ctx.arc(cloudX + 50 * scaleFactor, cloudY, 20 * scaleFactor, 0, Math.PI * 2);
+                        ctx.arc(cloudX + 35 * scaleFactor, cloudY - 15 * scaleFactor, 22 * scaleFactor, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    // Draw Toronto skyline with more detail
+                    const drawTorontoSkyline = () => {
+                        const s = scaleFactor;
+                        const skylineY = height * 0.5;
+                        
+                        // Background buildings (far)
+                        ctx.fillStyle = '#526D82';
+                        ctx.fillRect(width * 0.05, skylineY - 60*s, 35*s, 60*s);
+                        ctx.fillRect(width * 0.85, skylineY - 55*s, 40*s, 55*s);
+                        
+                        // Building 1 (left) - with more windows
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.fillRect(width * 0.1, skylineY - 90*s, 50*s, 90*s);
+                        ctx.fillStyle = '#FDB813'; // Yellow windows
+                        for(let row = 0; row < 8; row++) {
+                            for(let col = 0; col < 3; col++) {
+                                ctx.fillRect(width * 0.1 + (8 + col*15)*s, skylineY - (80 - row*10)*s, 8*s, 6*s);
+                            }
+                        }
+                        
+                        // Building 2 (tall) - with antenna
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.fillRect(width * 0.2, skylineY - 140*s, 55*s, 140*s);
+                        // Antenna
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.fillRect(width * 0.2 + 25*s, skylineY - 150*s, 3*s, 10*s);
+                        ctx.fillRect(width * 0.2 + 23*s, skylineY - 150*s, 7*s, 3*s);
+                        // Windows
+                        ctx.fillStyle = '#FDB813';
+                        for(let row = 0; row < 12; row++) {
+                            for(let col = 0; col < 3; col++) {
+                                ctx.fillRect(width * 0.2 + (10 + col*15)*s, skylineY - (130 - row*11)*s, 8*s, 7*s);
+                            }
+                        }
+                        
+                        // CN Tower (iconic) - with more detail
+                        const cnTowerX = width * 0.35;
+                        ctx.fillStyle = '#7f8c8d';
+                        // Needle
+                        ctx.fillRect(cnTowerX - 3*s, skylineY - 220*s, 6*s, 220*s);
+                        // Top sphere
+                        ctx.fillStyle = '#c0392b';
+                        ctx.beginPath();
+                        ctx.arc(cnTowerX, skylineY - 218*s, 8*s, 0, Math.PI * 2);
+                        ctx.fill();
+                        // Observation pod
+                        ctx.fillStyle = '#95a5a6';
+                        ctx.fillRect(cnTowerX - 18*s, skylineY - 125*s, 36*s, 25*s);
+                        ctx.fillStyle = '#34495e';
+                        for(let i = 0; i < 6; i++) {
+                            ctx.fillRect(cnTowerX - 15*s + i*5*s, skylineY - 120*s, 3*s, 15*s);
+                        }
+                        // Base shaft
+                        ctx.fillStyle = '#7f8c8d';
+                        ctx.fillRect(cnTowerX - 12*s, skylineY - 100*s, 24*s, 100*s);
+                        
+                        // Building 3 (medium right of CN Tower)
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.fillRect(width * 0.5, skylineY - 105*s, 48*s, 105*s);
+                        ctx.fillStyle = '#FDB813';
+                        for(let row = 0; row < 9; row++) {
+                            for(let col = 0; col < 3; col++) {
+                                ctx.fillRect(width * 0.5 + (8 + col*14)*s, skylineY - (95 - row*11)*s, 8*s, 7*s);
+                            }
+                        }
+                        
+                        // Building 4 (right side) - modern glass building
+                        ctx.fillStyle = '#34495e';
+                        ctx.fillRect(width * 0.65, skylineY - 120*s, 60*s, 120*s);
+                        ctx.fillStyle = '#5DADE2'; // Blue tinted windows
+                        for(let row = 0; row < 10; row++) {
+                            for(let col = 0; col < 4; col++) {
+                                ctx.fillRect(width * 0.65 + (5 + col*13)*s, skylineY - (110 - row*11)*s, 10*s, 8*s);
+                            }
+                        }
+                        
+                        // Building 5 (shorter right)
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.fillRect(width * 0.78, skylineY - 75*s, 45*s, 75*s);
+                        ctx.fillStyle = '#FDB813';
+                        for(let row = 0; row < 6; row++) {
+                            ctx.fillRect(width * 0.78 + 10*s, skylineY - (65 - row*11)*s, 10*s, 7*s);
+                            ctx.fillRect(width * 0.78 + 25*s, skylineY - (65 - row*11)*s, 10*s, 7*s);
+                        }
+                        
+                        // Building 6 (far right)
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.fillRect(width * 0.88, skylineY - 95*s, 50*s, 95*s);
+                        ctx.fillStyle = '#FDB813';
+                        for(let row = 0; row < 8; row++) {
+                            ctx.fillRect(width * 0.88 + 12*s, skylineY - (85 - row*11)*s, 8*s, 7*s);
+                            ctx.fillRect(width * 0.88 + 28*s, skylineY - (85 - row*11)*s, 8*s, 7*s);
+                        }
+                    };
+                    
+                    drawTorontoSkyline();
+
+                    // Draw Canadian flag waving
+                    const flagX = width * 0.08;
+                    const flagY = height * 0.15;
+                    const flagW = 60 * scaleFactor;
+                    const flagH = 40 * scaleFactor;
+                    
+                    // Flag pole
+                    ctx.fillStyle = '#7f8c8d';
+                    ctx.fillRect(flagX - 3*scaleFactor, flagY, 3*scaleFactor, 100*scaleFactor);
+                    
+                    // Flag (red-white-red with simple wave effect)
+                    const wave = Math.sin(player.frame * 0.1) * 3 * scaleFactor;
+                    
+                    // Left red stripe
+                    ctx.fillStyle = '#FF0000';
+                    ctx.fillRect(flagX, flagY + wave, flagW * 0.25, flagH);
+                    
+                    // White center with maple leaf
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(flagX + flagW * 0.25, flagY, flagW * 0.5, flagH);
+                    
+                    // Simple maple leaf on flag
+                    ctx.fillStyle = '#FF0000';
+                    const leafX = flagX + flagW * 0.5;
+                    const leafY = flagY + flagH * 0.5;
+                    const leafSize = 2 * scaleFactor;
+                    // Simplified maple leaf shape
+                    ctx.fillRect(leafX - leafSize, leafY - 4*leafSize, leafSize*2, leafSize*2);
+                    ctx.fillRect(leafX - 3*leafSize, leafY - leafSize, leafSize*6, leafSize*2);
+                    ctx.fillRect(leafX - leafSize, leafY + leafSize, leafSize*2, leafSize*3);
+                    
+                    // Right red stripe
+                    ctx.fillStyle = '#FF0000';
+                    ctx.fillRect(flagX + flagW * 0.75, flagY - wave, flagW * 0.25, flagH);
+
+                    // Draw boxes for target word - MUCH LOWER for mobile visibility
+                    const targetWord = config.targetWord || "CANADA";
+                    const boxSize = 50 * scaleFactor;
+                    const boxSpacing = 10 * scaleFactor;
+                    const totalWidth = (boxSize * targetWord.length) + (boxSpacing * (targetWord.length - 1));
+                    const startX = (width - totalWidth) / 2;
+                    const boxY = 120 * scaleFactor; // Moved down from 80 to 120 for better mobile visibility
+
+                    const collectedWord = player.collectedWord || "";
+                    
+                    for (let i = 0; i < targetWord.length; i++) {
+                        const x = startX + i * (boxSize + boxSpacing);
+                        
+                        // Draw box background
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                        ctx.fillRect(x, boxY, boxSize, boxSize);
+                        
+                        // Draw box border
+                        ctx.strokeStyle = '#000';
+                        ctx.lineWidth = 3;
+                        ctx.strokeRect(x, boxY, boxSize, boxSize);
+                        
+                        // Draw collected letters
+                        if (i < collectedWord.length) {
+                            ctx.fillStyle = '#000';
+                            ctx.font = `bold ${30 * scaleFactor}px "Press Start 2P"`;
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(collectedWord[i], x + boxSize/2, boxY + boxSize/2);
+                        }
+                    }
+
+                    // Draw falling letters
+                    entities.current.forEach(letter => {
+                        const letterSize = 40 * scaleFactor;
+                        ctx.fillStyle = '#dc2626';
+                        ctx.fillRect(letter.x, letter.y, letterSize, letterSize);
+                        ctx.strokeStyle = '#000';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(letter.x, letter.y, letterSize, letterSize);
+                        
+                        ctx.fillStyle = '#fff';
+                        ctx.font = `bold ${24 * scaleFactor}px "Press Start 2P"`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(letter.letter, letter.x + letterSize/2, letter.y + letterSize/2);
+                    });
+
+                    // Draw ground
+                    ctx.fillStyle = '#8B9A8E';
+                    ctx.fillRect(0, height - 120 * scaleFactor, width, 120 * scaleFactor);
+
+                    // Draw Romy character higher up (similar to level 3 catching position)
+                    const playerY = height - 200 * scaleFactor; // Changed from 150 to 200 for higher position
+                    drawAvatar(ctx, player.x, playerY, gameState.character, player.frame, false, config.charScale, false, PLAYER_SIZE, isCelebrating.current);
+                }
+            }
+        };
+
+        const drawFather = (ctx, x, y, s) => {
+            ctx.save();
+            ctx.translate(x, y);
+            // Red Plaid Shirt
+            ctx.fillStyle = '#b91c1c';
+            ctx.fillRect(0, 60*s, 60*s, 60*s);
+            ctx.fillStyle = '#7f1d1d';
+            ctx.fillRect(15*s, 60*s, 6*s, 60*s);
+            ctx.fillRect(0, 85*s, 60*s, 6*s);
+            
+            // Bigger Head
+            ctx.fillStyle = '#ffd6cc'; 
+            ctx.fillRect(-5*s, 0, 70*s, 65*s);
+            
+            // Brown hair with Greying Sides
+            ctx.fillStyle = '#2d1b0d'; 
+            ctx.fillRect(-5*s, -5*s, 70*s, 15*s); // Top
+            ctx.fillRect(-10*s, 0, 15*s, 25*s); // Left
+            ctx.fillRect(55*s, 0, 15*s, 25*s); // Right
+            
+            // Greying spots
+            ctx.fillStyle = '#d1d5db';
+            ctx.fillRect(-10*s, 5*s, 6*s, 6*s);
+            ctx.fillRect(-8*s, 15*s, 4*s, 4*s);
+            ctx.fillRect(64*s, 5*s, 6*s, 6*s);
+            ctx.fillRect(64*s, 15*s, 4*s, 4*s);
+
+            // Eyes
+            ctx.fillStyle = '#000';
+            ctx.fillRect(10*s, 30*s, 6*s, 6*s);
+            ctx.fillRect(44*s, 30*s, 6*s, 6*s);
+            ctx.restore();
+        };
+
+        const drawSojuBottle = (ctx, x, y, s) => {
+            drawPixelRect(ctx, x + 8*s, y, 12*s, 18*s, '#166534', '#052e16');
+            drawPixelRect(ctx, x, y + 18*s, 28*s, 50*s, '#166534', '#052e16');
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(x + 3*s, y + 35*s, 22*s, 20*s);
+            ctx.fillStyle = '#166534';
+            ctx.fillRect(x + 10*s, y + 42*s, 8*s, 8*s);
+        };
+
+        const drawLevel6 = (ctx, width, height, scale, frame, ritualState, ritualTimer, player) => {
+            const s = Math.min(width, height) / 500;
+            ctx.fillStyle = '#334155';
+            ctx.fillRect(0, 0, width, height);
+            ctx.fillStyle = '#1e293b';
+            for(let i=0; i<width; i+= 100*s) ctx.fillRect(i, 0, 4*s, height);
+
+            const tableW = width * 0.9;
+            const tableH = 140 * s;
+            const tableX = (width - tableW) / 2;
+            const tableY = height / 2 + 30 * s;
+            drawPixelRect(ctx, tableX, tableY, tableW, tableH, '#5d4037', '#3e2723');
+
+            const grillX = width/2;
+            const grillY = tableY + 60*s;
+            ctx.fillStyle = '#424242';
+            ctx.beginPath();
+            ctx.arc(grillX, grillY, 50*s, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = '#ef4444';
+            for(let i=0; i<4; i++) {
+                ctx.fillRect(grillX - 20*s + (i*12*s), grillY - 5*s, 8*s, 8*s);
+            }
+
+            const jamesX = width * 0.22;
+            const romyX = width/2 - 30*s;
+            const fatherX = width * 0.72;
+
+            // Phase based glass logic - Dad's glass moves first as indicator
+            let dadGlassX = fatherX;
+            let dadGlassY = tableY + 30*s;
+            let jamesGlassOff = 0;
+            
+            // Dad's glass moves to above Romy's head when CHEERS_WINDOW starts (as indicator)
+            if (ritualState === 'CHEERS_WINDOW' || ritualState === 'EATING' || ritualState === 'COMPLETE') {
+                // Animate Dad's glass moving to above Romy's head
+                let animationProgress = 0;
+                if (ritualState === 'CHEERS_WINDOW') {
+                    // Animate over the first 60 frames of CHEERS_WINDOW (ritualTimer 300-360)
+                    const elapsed = ritualTimer - 300;
+                    animationProgress = Math.min(1, elapsed / 60);
+                } else {
+                    // Already completed, stay at Romy's head
+                    animationProgress = 1;
+                }
+                
+                // Interpolate position from Dad's position to above Romy's head
+                dadGlassX = fatherX + (romyX - fatherX) * animationProgress;
+                dadGlassY = (tableY + 30*s) + ((tableY - 130*s) - (tableY + 30*s)) * animationProgress;
+            }
+            
+            // James's glass animation - moves to meet Dad's glass above Romy's head (side by side)
+            let jamesGlassX = jamesX + 20*s;
+            let jamesGlassY = tableY + 30*s;
+            
+            // Check if we need to animate James's glass to meet Dad's glass
+            if (ritualState === 'EATING' || ritualState === 'COMPLETE') {
+                // Get the click time from the player state
+                const jamesGlassClickTime = player?.jamesGlassClickTime;
+                const JAMES_GLASS_ANIMATION_DURATION = 60; // 60 frames animation
+                
+                if (jamesGlassClickTime !== null && jamesGlassClickTime !== undefined) {
+                    // Calculate animation progress
+                    const elapsedSinceClick = ritualTimer - jamesGlassClickTime;
+                    let animationProgress = Math.min(1, elapsedSinceClick / JAMES_GLASS_ANIMATION_DURATION);
+                    
+                    // Target position: next to Dad's glass (to the left)
+                    const targetX = romyX - 20*s; // Position to the left of Dad's glass
+                    const targetY = tableY - 130*s;
+                    
+                    // Starting position
+                    const startX = jamesX + 20*s;
+                    const startY = tableY + 30*s;
+                    
+                    // Interpolate to target position
+                    jamesGlassX = startX + (targetX - startX) * animationProgress;
+                    jamesGlassY = startY + (targetY - startY) * animationProgress;
+                } else {
+                    // Fallback: just move up if click time not tracked
+                    jamesGlassY = tableY + 30*s - 20*s;
+                }
+            }
+
+            ctx.save(); ctx.translate(jamesX, tableY - 60*s); ctx.scale(1.8 * scale, 1.8 * scale); renderCharacterBase(ctx, 'male', frame); ctx.restore();
+            
+            // Draw James's glass at animated position
+            const jamesGlassRect = [jamesGlassX, jamesGlassY, 14*s, 16*s];
+            drawPixelRect(ctx, jamesGlassRect[0], jamesGlassRect[1], jamesGlassRect[2], jamesGlassRect[3], '#cbd5e1', '#94a3b8');
+
+            ctx.save(); ctx.translate(romyX, tableY - 110*s); ctx.scale(1.5 * scale, 1.5 * scale); renderCharacterBase(ctx, 'female', frame); ctx.restore();
+            drawPixelRect(ctx, width/2 - 7*s, tableY + 15*s, 14*s, 16*s, '#cbd5e1', '#94a3b8');
+
+            ctx.save(); ctx.translate(fatherX, tableY - 105*s); ctx.scale(1.6 * scale, 1.6 * scale); drawFather(ctx, 0, 0, 1.0); ctx.restore();
+            
+            // Draw Dad's glass at animated position
+            const dadGlassRect = [dadGlassX, dadGlassY, 14*s, 16*s];
+            drawPixelRect(ctx, dadGlassRect[0], dadGlassRect[1], dadGlassRect[2], dadGlassRect[3], '#cbd5e1', '#94a3b8');
+
+            drawSojuBottle(ctx, fatherX + 80*s, tableY - 20*s, s);
+
+            if (ritualState === 'EATING' || ritualState === 'COMPLETE') {
+                ctx.fillStyle = '#fff';
+                ctx.font = `${10 * scale}px "Press Start 2P"`;
+                // Position CLINK! above Romy's head
+                ctx.fillText('CLINK!', romyX - 20*s, tableY - 130*s);
+
+                // Meat Animation
+                const meatS = 10*s;
+                const MEAT_ANIMATION_DURATION = 150; // Animation duration for meat movement
+                
+                if (ritualState === 'EATING') {
+                    // Calculate when EATING phase started (when James's glass was clicked)
+                    const eatingStartTime = player?.jamesGlassClickTime || 0;
+                    const elapsedSinceEatingStart = ritualTimer - eatingStartTime;
+                    
+                    // Dad eats first 150 frames after EATING starts
+                    if (elapsedSinceEatingStart < MEAT_ANIMATION_DURATION) {
+                        const t = elapsedSinceEatingStart / MEAT_ANIMATION_DURATION;
+                        const mx = grillX + (fatherX + 10*s - grillX) * t; // Move to Dad's mouth area
+                        const my = grillY + (tableY - 95*s - grillY) * t; // Move to Dad's mouth height
+                        // Fade out as it gets closer to the mouth
+                        const opacity = 1 - (t * 0.8); // Start fading at 80% of animation
+                        if (t < 0.9) { // Only show until 90% complete (then it's "eaten")
+                            ctx.save();
+                            ctx.globalAlpha = opacity;
+                            drawPixelRect(ctx, mx, my, meatS, meatS, '#795548', '#5d4037', false);
+                            ctx.restore();
+                        }
+                    } else {
+                        // After Dad's meat animation, wait for player to click grill
+                        // Then animate James's meat
+                        const meatClickTime = player?.meatClickTime;
+                        if (meatClickTime !== null && meatClickTime !== undefined) {
+                            const elapsedSinceMeatClick = ritualTimer - meatClickTime;
+                            if (elapsedSinceMeatClick < MEAT_ANIMATION_DURATION) {
+                                // Animate meat from grill to James's mouth
+                                const t = elapsedSinceMeatClick / MEAT_ANIMATION_DURATION;
+                                const startX = grillX;
+                                const startY = grillY;
+                                const targetX = jamesX + 30*s; // James's mouth area
+                                const targetY = tableY - 45*s; // James's mouth height
+                                const mx = startX + (targetX - startX) * t;
+                                const my = startY + (targetY - startY) * t;
+                                // Fade out as it gets closer to the mouth
+                                const opacity = 1 - (t * 0.8);
+                                if (t < 0.9) { // Only show until 90% complete (then it's "eaten")
+                                    ctx.save();
+                                    ctx.globalAlpha = opacity;
+                                    drawPixelRect(ctx, mx, my, meatS, meatS, '#795548', '#5d4037', false);
+                                    ctx.restore();
+                                }
+                            }
+                            // No else - meat disappears after animation (eaten)
+                        }
+                    }
+                }
+                // COMPLETE state - no meat shown (it's been eaten)
+            }
+
+            return { jamesGlass: jamesGlassRect, grill: [grillX - 50*s, grillY - 50*s, 100*s, 100*s] };
+        };
+
+        /**
+         * LEVEL DEFINITIONS: Add new levels here!
+         * 
+         * To add a new level, just add a new object to the LEVELS array below.
+         * Each level can have:
+         *   - number: Level number (auto-assigned if not provided)
+         *   - themeName: Display name
+         *   - type: Game type ("platformer", "catching", "wakeup", "bike_chase", "soju_ceremony")
+         *   - introText: Story text shown before level starts
+         *   - completionText: Text shown when level is completed
+         *   - requiresCharSelect: If true, shows character selection before level
+         *   - forcedCharacter: "male" or "female" to force a character (optional)
+         *   - nextLevelStory: Story text shown after completion (before next level)
+         *   - ...plus any type-specific config (gravity, segments, etc.)
+         */
+        const LEVELS = [
+            {
+                themeName: "HAN RIVER PARK",
+                type: "platformer",
+                introText: "Find your partner at the end of the river path. Jump over the 6 Pillow Monsters!",
+                completionText: "The mission was a success!",
+                nextLevelStory: "THEY DIDN'T TALK TO EACH OTHER AFTER THAT... THEN ROMY MESSAGED JAMES...",
+                gravity: 0.6,
+                jumpForce: -14,
+                scrollSpeed: 5,
+                primaryColor: "#166534",
+                shadowColor: "#052e16",
+                charScale: 2.0,
+                segments: [
+                    { id: 'start', type: 'flat', length: 1200 },
+                    { id: 'o1', type: 'obstacle', length: 1000, obstacleType: 'pillow_monster' },
+                    { id: 'o2', type: 'obstacle', length: 1000, obstacleType: 'pillow_monster' },
+                    { id: 'o3', type: 'obstacle', length: 1000, obstacleType: 'pillow_monster' },
+                    { id: 'o4', type: 'obstacle', length: 1000, obstacleType: 'pillow_monster' },
+                    { id: 'o5', type: 'obstacle', length: 1000, obstacleType: 'pillow_monster' },
+                    { id: 'o6', type: 'obstacle', length: 1000, obstacleType: 'pillow_monster' },
+                    { id: 'end', type: 'flat', length: 1200, hasPartner: true }
+                ]
+            },
+            {
+                themeName: "YONGMASAN",
+                type: "platformer",
+                introText: "PIZZA SOUNDS GOOD, BUT JAMES IS AT THE TOP OF A MOUNTAIN, HURRY DOWN, BUT DON'T HIT ANY TREES!",
+                completionText: "The mission was a success!",
+                nextLevelStory: "JAMES MADE IT DOWN! GOOD THING HE GOT FEBREZE, BECAUSE HE STINKS!",
+                forcedCharacter: "male",
+                gravity: 0.6,
+                jumpForce: -14,
+                scrollSpeed: 4.5,
+                primaryColor: "#15803d",
+                shadowColor: "#064e3b",
+                charScale: 1.2,
+                segments: [
+                    { id: 's2-start', type: 'flat', length: 1500 },
+                    { id: 's2-o1', type: 'obstacle', length: 1100, obstacleType: 'tree' },
+                    { id: 's2-o2', type: 'obstacle', length: 1100, obstacleType: 'tree' },
+                    { id: 's2-o3', type: 'obstacle', length: 1100, obstacleType: 'tree' },
+                    { id: 's2-o4', type: 'obstacle', length: 1100, obstacleType: 'tree' },
+                    { id: 's2-o5', type: 'obstacle', length: 1100, obstacleType: 'tree' },
+                    { id: 's2-o6', type: 'obstacle', length: 1100, obstacleType: 'tree' },
+                    { id: 's2-o7', type: 'obstacle', length: 1100, obstacleType: 'tree' },
+                    { id: 's2-end', type: 'flat', length: 2500, hasFebreze: true }
+                ]
+            },
+            {
+                themeName: "CHEESEWICK",
+                type: "catching",
+                introText: "TIME TO EAT PIZZA, PICK YOUR CHARACTER",
+                completionText: "The mission was a success!",
+                nextLevelStory: "LET THE DATING BEGIN!",
+                requiresCharSelect: true,
+                charScale: 1.8,
+                primaryColor: "#451a03",
+                shadowColor: "#271104"
+            },
+            {
+                themeName: "SAIPAN AIRPORT",
+                type: "wakeup",
+                introText: "CLICK THE Zs TO KEEP HER AWAKE",
+                completionText: "The mission was a success!",
+                nextLevelStory: "GOOD THING SHE STAYED AWAKE, LET'S TAKE ANOTHER VACATION",
+                forcedCharacter: "female",
+                charScale: 2.5,
+                primaryColor: "#334155",
+                shadowColor: "#0f172a"
+            },
+            {
+                themeName: "BALI RIDE",
+                type: "bike_chase",
+                introText: "Bali is beautiful, let's take a motorcycle ride through the jungle, but don't lose your hat!",
+                completionText: "What a wonderful ride. The hat is safe!",
+                nextLevelStory: "THAT WAS FUN, AND THE HAT IS SAFE",
+                charScale: 2.0,
+                primaryColor: "#065f46",
+                shadowColor: "#064e3b"
+            },
+            {
+                themeName: "K-BBQ WITH DAD",
+                type: "soju_ceremony",
+                introText: "MAKE SURE YOU DRINK YOUR SOJU CORRECTLY",
+                completionText: "YOU MASTERED KBBQ",
+                nextLevelStory: "YOU MASTERED KOREAN BBQ, TIME FOR A BIG MOVE... BUT WHERE WOULD WE MOVE TO?",
+                charScale: 1.8
+            },
+            {
+                themeName: "LET'S MOVE! PART 1",
+                type: "letter_catch",
+                introText: "Time to move to Canada! Catch the letters to spell CANADA!",
+                completionText: "Canada, here we come!",
+                nextLevelStory: "A new adventure awaits in the Great White North!",
+                forcedCharacter: "female",
+                charScale: 2.0,
+                primaryColor: "#dc2626",
+                shadowColor: "#991b1b",
+                targetWord: "CANADA"
+            }
+            // ADD MORE LEVELS HERE! Just copy the format above and change the values.
+            // Example for level 7:
+            // {
+            //     themeName: "NEW LOCATION",
+            //     type: "platformer", // or "catching", "wakeup", etc.
+            //     introText: "Your story text here",
+            //     completionText: "Level complete message",
+            //     nextLevelStory: "Story after completion",
+            //     charScale: 2.0,
+            //     primaryColor: "#166534",
+            //     shadowColor: "#052e16",
+            //     // ... add type-specific config
+            // }
+        ];
+
+        // Auto-assign level numbers and create lookup objects
+        LEVELS.forEach((level, index) => {
+            if (!level.number) level.number = index + 1;
+        });
+
+        // Create LEVEL_CONFIGS for backward compatibility
+        const LEVEL_CONFIGS = {};
+        LEVELS.forEach(level => {
+            LEVEL_CONFIGS[level.number] = level;
+        });
+
+        // Helper: Get level by number
+        const getLevel = (num) => LEVEL_CONFIGS[num] || LEVELS[0];
+
+        // Helper: Get all level numbers
+        const getAllLevelNumbers = () => LEVELS.map(l => l.number);
+
+        const App = () => {
+            const [gameState, setGameState] = useState({ status: GameStatus.MENU, levelNumber: 1, character: 'male', score: 0, pizzasCaught: 0, zsTapped: 0, deathReason: null, ritualMessage: '' });
+            const [isMuted, setIsMuted] = useState(false);
+            const menuMusicRef = useRef(null);
+            const canvasRef = useRef(null);
+            const requestRef = useRef();
+            const statusRef = useRef(GameStatus.MENU);
+            const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
+            
+            const scaleFactor = dimensions.width < 600 ? 0.6 : 1.0;
+            const PLAYER_SIZE = PLAYER_SIZE_BASE * scaleFactor;
+            const GROUND_HEIGHT = GROUND_HEIGHT_BASE * scaleFactor;
+            const targetXRef = useRef(dimensions.width / 2);
+            const baliHatRef = useRef({ state: 'attached', flyTimer: 0, saveTimer: 0, screenX: 0, screenY: 0, floatX: 0, floatY: 0, velocityX: 0 });
+            const playerRef = useRef({ worldX: 0, x: dimensions.width / 2, y: 0, vy: 0, frame: 0, passedObstacles: new Set(), ritualState: 'WAITING', ritualTimer: 0 });
+            const entitiesRef = useRef([]); 
+            const isCelebrating = useRef(false);
+            const hitZonesRef = useRef({});
+
+            // Initialize menu music
+            useEffect(() => {
+                menuMusicRef.current = document.getElementById('menuMusic');
+                if (menuMusicRef.current) {
+                    menuMusicRef.current.volume = 0.5; // Set volume to 50%
+                }
+            }, []);
+
+            // Control music based on game state
+            useEffect(() => {
+                const music = menuMusicRef.current;
+                if (!music) return;
+
+                // Play music on menu and level select screens
+                if (gameState.status === GameStatus.MENU || gameState.status === GameStatus.LEVEL_SELECT) {
+                    if (!isMuted) {
+                        music.play().catch(err => console.log('Audio play prevented:', err));
+                    }
+                } else {
+                    // Pause music during gameplay
+                    music.pause();
+                }
+            }, [gameState.status, isMuted]);
+
+            // Handle mute toggle
+            useEffect(() => {
+                const music = menuMusicRef.current;
+                if (!music) return;
+                
+                if (isMuted) {
+                    music.pause();
+                } else if (gameState.status === GameStatus.MENU || gameState.status === GameStatus.LEVEL_SELECT) {
+                    music.play().catch(err => console.log('Audio play prevented:', err));
+                }
+            }, [isMuted, gameState.status]);
+
+            useEffect(() => { statusRef.current = gameState.status; }, [gameState.status]);
+
+            const loop = useCallback(() => {
+                const canvas = canvasRef.current; if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                if (statusRef.current === GameStatus.PLAYING) {
+                    const config = getLevel(gameState.levelNumber);
+                    const levelLogic = LevelLibrary[config.type];
+                    const context = { 
+                        player: playerRef.current, config, gameState, setGameState, 
+                        isCelebrating, scaleFactor, dimensions, PLAYER_SIZE, GROUND_HEIGHT,
+                        targetX: targetXRef, entities: entitiesRef, baliHat: baliHatRef,
+                        getGroundY: (wx) => LevelLibrary.platformer.getGroundY(wx, gameState.levelNumber, dimensions.height, scaleFactor, GROUND_HEIGHT),
+                        hitZones: hitZonesRef.current
+                    };
+
+                    playerRef.current.frame++;
+                    ctx.clearRect(0, 0, dimensions.width, dimensions.height);
+                    levelLogic.update(context);
+                    levelLogic.draw(ctx, context);
+                    // Store hit zones for levels that use them (like soju_ceremony)
+                    if (config.type === 'soju_ceremony' && context.hitZones) {
+                        hitZonesRef.current = context.hitZones;
+                    }
+                }
+                requestRef.current = requestAnimationFrame(loop);
+            }, [gameState.levelNumber, dimensions, scaleFactor, PLAYER_SIZE, GROUND_HEIGHT]);
+
+            const startLevel = (num, forcedChar = null) => {
+                const config = getLevel(num);
+                const char = forcedChar || config.forcedCharacter || gameState.character;
+                
+                // Initialize level-specific state
+                if (config.type === 'bike_chase') {
+                    baliHatRef.current = { state: 'attached', flyTimer: 0, saveTimer: 0, screenX: 0, screenY: 0, floatX: 0, floatY: 0, velocityX: 0 };
+                }
+                
+                const initialX = 0;
+                playerRef.current = { 
+                    worldX: initialX, x: dimensions.width / 2, 
+                    y: (config.type === 'platformer') ? LevelLibrary.platformer.getGroundY(initialX, num, dimensions.height, scaleFactor, GROUND_HEIGHT) - (PLAYER_SIZE * (config?.charScale || 1)) : dimensions.height/2, 
+                    vy: 0, frame: 0, passedObstacles: new Set(), ritualState: 'WAITING', ritualTimer: 0, jamesGlassClickTime: null, meatClickTime: null
+                };
+                targetXRef.current = dimensions.width / 2; entitiesRef.current = []; isCelebrating.current = false;
+                setGameState(prev => ({ ...prev, status: GameStatus.PLAYING, levelNumber: num, character: char, score: 0, pizzasCaught: 0, zsTapped: 0, ritualMessage: '' }));
+            };
+
+            const handleAction = useCallback((clientX, clientY) => {
+                const config = getLevel(gameState.levelNumber);
+                const player = playerRef.current;
+                
+                // Handle level-specific interactions by type
+                if (config.type === 'soju_ceremony') {
+                    const rect = canvasRef.current.getBoundingClientRect();
+                    const check = (zone) => zone && clientX >= zone[0] && clientX <= zone[0] + zone[2] && clientY >= zone[1] && clientY <= zone[1] + zone[3];
+                    
+                    if (player.ritualState === 'CHEERS_WINDOW') {
+                        if (check(hitZonesRef.current.jamesGlass)) {
+                            // Store when James's glass was clicked to animate it
+                            player.jamesGlassClickTime = player.ritualTimer;
+                            player.ritualState = 'EATING';
+                            // Don't reset ritualTimer - keep it continuous for animation timing
+                        }
+                    } else if (player.ritualState === 'EATING') {
+                        if (check(hitZonesRef.current.grill)) {
+                            // Track when meat is clicked to animate it
+                            if (!player.meatClickTime) {
+                                player.meatClickTime = player.ritualTimer;
+                            }
+                        }
+                    }
+                } else if (config.type === 'bike_chase') {
+                    if (baliHatRef.current.state === 'flying') {
+                        const dist = Math.sqrt((baliHatRef.current.screenX - clientX)**2 + (baliHatRef.current.screenY - clientY)**2);
+                        if (dist < 180 * scaleFactor) { 
+                            baliHatRef.current.state = 'saved'; 
+                            baliHatRef.current.saveTimer = player.frame; 
+                        }
+                    }
+                } else if (config.type === "catching") { 
+                    if (!isCelebrating.current) targetXRef.current = clientX; 
+                } else if (config.type === "letter_catch") {
+                    if (!isCelebrating.current) targetXRef.current = clientX;
+                } else if (config.type === "wakeup") {
+                    let hit = false;
+                    entitiesRef.current = entitiesRef.current.filter(z => {
+                        if (Math.sqrt((z.x - clientX)**2 + (z.y - clientY)**2) < 60 * scaleFactor) { hit = true; return false; }
+                        return true;
+                    });
+                    if (hit) setGameState(prev => {
+                        const newVal = prev.zsTapped + 1;
+                        if (newVal >= 10) {
+                            isCelebrating.current = true;
+                            const level = getLevel(gameState.levelNumber);
+                            setTimeout(() => {
+                                if (level.nextLevelStory) {
+                                    setGameState(s => ({ ...s, status: `LEVEL_${s.levelNumber}_COMPLETE_STORY` }));
+                                } else {
+                                    setGameState(s => ({ ...s, status: GameStatus.LEVEL_COMPLETE }));
+                                }
+                            }, 2500);
+                        }
+                        return { ...prev, zsTapped: newVal };
+                    });
+                } else if (config.type === 'platformer') {
+                    const gy = LevelLibrary.platformer.getGroundY(player.worldX, gameState.levelNumber, dimensions.height, scaleFactor, GROUND_HEIGHT);
+                    if (player.y + (PLAYER_SIZE * config.charScale) >= gy - 10) player.vy = config.jumpForce;
+                }
+            }, [gameState.levelNumber, dimensions, scaleFactor, PLAYER_SIZE, GROUND_HEIGHT]);
+
+            useEffect(() => {
+                const handleResize = () => { setDimensions({ width: window.innerWidth, height: window.innerHeight }); if (canvasRef.current) { canvasRef.current.width = window.innerWidth; canvasRef.current.height = window.innerHeight; }};
+                window.addEventListener('resize', handleResize); handleResize();
+                const handlePointer = (e) => {
+                    const rect = canvasRef.current.getBoundingClientRect();
+                    const x = (e.clientX || (e.touches && e.touches[0].clientX)) - rect.left;
+                    const y = (e.clientY || (e.touches && e.touches[0].clientY)) - rect.top;
+                    if (statusRef.current === GameStatus.PLAYING) handleAction(x, y);
+                };
+                const handlePointerMove = (e) => {
+                    if (statusRef.current === GameStatus.PLAYING) {
+                        const level = getLevel(gameState.levelNumber);
+                        if (level.type === 'catching' || level.type === 'letter_catch') {
+                            const rect = canvasRef.current.getBoundingClientRect();
+                            const x = (e.clientX || (e.touches && e.touches[0].clientX)) - rect.left;
+                            targetXRef.current = x;
+                        }
+                    }
+                };
+                window.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'ArrowUp') handleAction(); });
+                window.addEventListener('mousedown', handlePointer); 
+                window.addEventListener('touchstart', handlePointer);
+                window.addEventListener('mousemove', handlePointerMove);
+                window.addEventListener('touchmove', handlePointerMove);
+                requestRef.current = requestAnimationFrame(loop);
+                return () => { 
+                    window.removeEventListener('resize', handleResize); 
+                    window.removeEventListener('mousemove', handlePointerMove);
+                    window.removeEventListener('touchmove', handlePointerMove);
+                    cancelAnimationFrame(requestRef.current); 
+                };
+            }, [loop, handleAction, gameState.levelNumber]);
+
+            const pizzaGoal = gameState.character === 'male' ? 20 : 4;
+            const btnClass = "bg-[#f43f5e] px-8 py-4 md:px-12 md:py-6 border-4 border-white shadow-[0_6px_0_0_#991b1b] active:translate-y-1 active:shadow-none transition-all text-[10px] md:text-sm uppercase";
+
+            return (
+                <div className="w-screen h-screen bg-[#0c0a1f] flex items-center justify-center overflow-hidden text-white select-none relative" style={{ fontFamily: "'Press Start 2P', cursive" }}>
+                    {/* Mute button - show on menu and level select */}
+                    {(gameState.status === GameStatus.MENU || gameState.status === GameStatus.LEVEL_SELECT) && (
+                        <button 
+                            onClick={() => setIsMuted(!isMuted)} 
+                            className="mute-button"
+                        >
+                            {isMuted ? '🔇 UNMUTE' : '🔊 MUTE'}
+                        </button>
+                    )}
+                    <canvas ref={canvasRef} className="fixed inset-0 w-full h-full z-0" />
+                    {gameState.status === GameStatus.PLAYING && (() => {
+                        const level = getLevel(gameState.levelNumber);
+                        let statusText = `SCORE: ${String(gameState.score).padStart(6, '0')}`;
+                        
+                        // Level-specific status text
+                        if (level.type === 'catching') {
+                            statusText = `PIZZAS: ${gameState.pizzasCaught} / ${pizzaGoal}`;
+                        } else if (level.type === 'wakeup') {
+                            statusText = `WAKE UP: ${gameState.zsTapped} / 10`;
+                        } else if (level.type === 'bike_chase') {
+                            statusText = baliHatRef.current.state === 'flying' ? 'TAP THE HAT NOW!' : 
+                                        (baliHatRef.current.state === 'saved' ? 'SAFE!' : 'ENJOY THE RIDE');
+                        } else if (level.type === 'soju_ceremony') {
+                            statusText = playerRef.current.ritualState === 'WAITING' ? 'WAIT FOR DAD...' : 
+                                        (playerRef.current.ritualState === 'CHEERS_WINDOW' ? 'CHEERS NOW!' : 'EAT!');
+                        } else if (level.type === 'letter_catch') {
+                            // No status text for letter_catch - progress is shown in the boxes
+                            statusText = null;
+                        }
+                        
+                        return (
+                            <div className="fixed top-4 md:top-8 left-0 right-0 px-4 md:px-8 flex flex-col md:flex-row justify-between items-center gap-2 z-40 pointer-events-none w-full max-w-5xl mx-auto">
+                                <div className="bg-black/50 backdrop-blur-sm p-2 md:p-4 border-2 border-white/30 rounded-lg w-full md:w-auto text-center">
+                                    <span className="text-[#f43f5e] text-[8px] md:text-xs uppercase">{level.themeName}</span>
+                                </div>
+                                {statusText && (
+                                    <div className="bg-black/50 backdrop-blur-sm p-2 md:p-4 border-2 border-white/30 rounded-lg w-full md:w-auto text-center">
+                                        <span className="text-white text-[8px] md:text-xs">{statusText}</span>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
+                    {gameState.status === GameStatus.MENU && (
+                        <div className="flex flex-col items-center justify-center z-50 p-4 text-center">
+                            <h1 className="text-4xl md:text-6xl font-black mb-12 text-[#f43f5e] italic" style={{ textShadow: '4px 4px 0px #000' }}>JAROMY</h1>
+                            <div className="flex flex-col gap-4 w-full max-w-xs">
+                                <button onClick={() => setGameState(prev => ({ ...prev, status: GameStatus.SELECT_CHAR }))} className={btnClass}>START MISSION</button>
+                                <button onClick={() => setGameState(prev => ({ ...prev, status: GameStatus.LEVEL_SELECT }))} className="bg-slate-700 px-8 py-3 md:py-4 border-4 border-white text-[10px] md:text-sm">SELECT MISSION</button>
+                            </div>
+                        </div>
+                    )}
+                    {gameState.status === GameStatus.SELECT_CHAR && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-[#0c0a1f] p-4">
+                            <h2 className="text-sm md:text-xl mb-12 uppercase">CHOOSE A CHARACTER</h2>
+                            <div className="flex flex-col md:flex-row gap-6 md:gap-12">
+                                <button onClick={() => setGameState(prev => ({ ...prev, character: 'male', status: GameStatus.STORY_INTRO }))} className="flex flex-col items-center gap-2"><AvatarCanvas char="male" /><span className="text-[10px] md:text-xs font-bold">JAMES</span></button>
+                                <button onClick={() => setGameState(prev => ({ ...prev, character: 'female', status: GameStatus.STORY_INTRO }))} className="flex flex-col items-center gap-2"><AvatarCanvas char="female" /><span className="text-[10px] md:text-xs font-bold">ROMY</span></button>
+                            </div>
+                        </div>
+                    )}
+                    {gameState.status === GameStatus.LEVEL_SELECT && (
+                        <div className="absolute inset-0 flex flex-col z-50 bg-[#0c0a1f] overflow-y-auto custom-scroll">
+                            <div className="flex-shrink-0 pt-8 pb-4 px-4 text-center sticky top-0 bg-[#0c0a1f] z-10">
+                                <h2 className="text-sm md:text-xl text-[#f43f5e]">SELECT MISSION</h2>
+                            </div>
+                            <div className="flex-1 px-4 pb-20">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-3xl mx-auto mb-8">
+                                    {getAllLevelNumbers().map(num => {
+                                        const level = getLevel(num);
+                                        return (
+                                            <button key={num} onClick={() => {
+                                                if (num === 1) setGameState(prev => ({ ...prev, status: GameStatus.STORY_INTRO }));
+                                                else if (level.requiresCharSelect) {
+                                                    // Create dynamic status for char select
+                                                    setGameState(prev => ({ ...prev, status: `LEVEL_${num}_CHAR_SELECT` }));
+                                                } else {
+                                                    startLevel(num);
+                                                }
+                                            }} className="p-4 md:p-6 bg-slate-800 border-4 border-white hover:bg-[#f43f5e] transition-colors flex flex-col items-center gap-2">
+                                                <span className="text-[8px] md:text-[10px] opacity-50 font-bold">LEVEL {num}</span>
+                                                <span className="text-[10px] md:text-xs">{level.themeName}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {/* Story screens - dynamically generated from level definitions */}
+                    {(() => {
+                        // Check if this is a story status
+                        let storyText = null;
+                        let nextAction = null;
+                        let bgColor = '#0f172a';
+                        let showYesNo = false;
+                        
+                        // Level intro (first level)
+                        if (gameState.status === GameStatus.STORY_INTRO) {
+                            const level = getLevel(1);
+                            storyText = level.introText;
+                            nextAction = () => startLevel(1);
+                        }
+                        // Level 1 completion -> "THEY DIDN'T TALK..." screen
+                        else if (gameState.status === 'LEVEL_1_COMPLETE_STORY') {
+                            storyText = "THEY DIDN'T TALK TO EACH OTHER AFTER THAT... THEN ROMY MESSAGED JAMES...";
+                            nextAction = () => setGameState(s => ({ ...s, status: 'PIZZA_DECISION' }));
+                        }
+                        // Pizza decision screen (yellow background with yes/no buttons)
+                        else if (gameState.status === 'PIZZA_DECISION') {
+                            storyText = 'PIZZA?';
+                            bgColor = '#fbbf24'; // yellow background
+                            showYesNo = true;
+                        }
+                        // Level 2 intro after saying yes to pizza
+                        else if (gameState.status === 'LEVEL_2_INTRO') {
+                            storyText = "PIZZA SOUNDS GOOD, BUT JAMES IS AT THE TOP OF A MOUNTAIN, HURRY DOWN, BUT DON'T HIT ANY TREES!";
+                            nextAction = () => startLevel(2);
+                        }
+                        // Level 2 completion
+                        else if (gameState.status === 'LEVEL_2_COMPLETE_STORY') {
+                            storyText = getLevel(2).nextLevelStory;
+                            nextAction = () => setGameState(s => ({ ...s, status: 'LEVEL_3_CHAR_SELECT' }));
+                        }
+                        // Level 3 completion -> "LET THE DATING BEGIN!"
+                        else if (gameState.status === 'LEVEL_3_COMPLETE_STORY') {
+                            storyText = "LET THE DATING BEGIN!";
+                            nextAction = () => setGameState(s => ({ ...s, status: 'SAIPAN_PRE_INTRO' }));
+                        }
+                        // Saipan pre-intro
+                        else if (gameState.status === 'SAIPAN_PRE_INTRO') {
+                            storyText = "WE'RE IN SAIPAN, BUT DON'T LET ROMY FALL ASLEEP AT THE AIRPORT";
+                            nextAction = () => setGameState(s => ({ ...s, status: 'SAIPAN_INTRO' }));
+                        }
+                        // Saipan intro (level 4)
+                        else if (gameState.status === 'SAIPAN_INTRO') {
+                            storyText = "CLICK THE Zs TO KEEP HER AWAKE";
+                            nextAction = () => startLevel(4);
+                        }
+                        // Level 4 completion
+                        else if (gameState.status === 'LEVEL_4_COMPLETE_STORY') {
+                            storyText = getLevel(4).nextLevelStory;
+                            nextAction = () => {
+                                const level5 = getLevel(5);
+                                if (level5.introText) {
+                                    setGameState(s => ({ ...s, status: 'LEVEL_5_INTRO' }));
+                                } else {
+                                    startLevel(5);
+                                }
+                            };
+                        }
+                        // Level 5 intro
+                        else if (gameState.status === 'LEVEL_5_INTRO') {
+                            storyText = getLevel(5).introText;
+                            nextAction = () => startLevel(5);
+                        }
+                        // Level 5 completion -> "THAT WAS FUN..."
+                        else if (gameState.status === 'LEVEL_5_COMPLETE_STORY') {
+                            storyText = "THAT WAS FUN, AND THE HAT IS SAFE";
+                            nextAction = () => setGameState(s => ({ ...s, status: 'KBBQ_INTRO' }));
+                        }
+                        // KBBQ intro (level 6)
+                        else if (gameState.status === 'KBBQ_INTRO') {
+                            storyText = "TIME FOR BBQ WITH ROMY'S FAMILY, DON'T MAKE ANY MISTAKES.";
+                            nextAction = () => startLevel(6);
+                        }
+                        // Level 6 completion
+                        else if (gameState.status === 'LEVEL_6_COMPLETE_STORY') {
+                            storyText = "YOU MASTERED KOREAN BBQ, TIME FOR A BIG MOVE... BUT WHERE WOULD WE MOVE TO?";
+                            nextAction = () => startLevel(7);
+                        }
+                        // Level 7 completion
+                        else if (gameState.status === 'LEVEL_7_COMPLETE_STORY') {
+                            storyText = getLevel(7).nextLevelStory;
+                            nextAction = () => setGameState(s => ({ ...s, status: GameStatus.MENU }));
+                        }
+                        // Generic handler for any other level completion stories
+                        else if (gameState.status.startsWith('LEVEL_') && gameState.status.endsWith('_COMPLETE_STORY')) {
+                            const levelNum = parseInt(gameState.status.match(/LEVEL_(\d+)_/)[1]);
+                            const level = getLevel(levelNum);
+                            storyText = level.nextLevelStory;
+                            nextAction = () => setGameState(s => ({ ...s, status: GameStatus.MENU }));
+                        }
+                        
+                        // Special background colors
+                        if (gameState.status === 'PIZZA_DECISION') {
+                            bgColor = '#fbbf24';
+                        }
+                        
+                        if (storyText && (nextAction || showYesNo)) {
+                            const textColor = bgColor === '#fbbf24' ? 'text-black' : 'text-white';
+                            return (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center z-50 p-6 text-center" style={{ backgroundColor: bgColor }}>
+                                    <div className="max-w-md flex flex-col items-center gap-8">
+                                        <p className={`text-[10px] md:text-sm uppercase leading-loose ${textColor}`}>
+                                            {storyText}
+                                        </p>
+                                        {showYesNo ? (
+                                            <div className="flex gap-4">
+                                                <button onClick={() => setGameState(s => ({ ...s, status: 'LEVEL_2_INTRO' }))} className="bg-green-600 px-8 py-4 border-4 border-black text-white text-[10px] md:text-sm uppercase">YES</button>
+                                                <button onClick={() => setGameState(s => ({ ...s, status: GameStatus.MENU }))} className="bg-red-600 px-8 py-4 border-4 border-black text-white text-[10px] md:text-sm uppercase">NO</button>
+                                            </div>
+                                        ) : (
+                                            <button onClick={nextAction} className={btnClass}>
+                                                {gameState.status.includes('INTRO') ? 'START' : 'NEXT'}
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        }
+                        return null;
+                    })()}
+                    {/* Dynamic character select for any level that requires it */}
+                    {gameState.status.startsWith('LEVEL_') && gameState.status.endsWith('_CHAR_SELECT') && (() => {
+                        const levelNum = parseInt(gameState.status.match(/LEVEL_(\d+)_/)[1]);
+                        const level = getLevel(levelNum);
+                        if (!level.requiresCharSelect) return null;
+                        
+                        // Special handling for level 3 (pizza catching)
+                        const isPizzaLevel = levelNum === 3;
+                        
+                        return (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-[#fbbf24] p-4 text-center">
+                                <h2 className="text-xs md:text-xl mb-12 uppercase text-black font-black">
+                                    {isPizzaLevel ? 'WHO WANTS PIZZA?' : 'CHOOSE A CHARACTER'}
+                                </h2>
+                                <div className="flex flex-col md:flex-row gap-8">
+                                    <button onClick={() => startLevel(levelNum, 'male')} className="flex flex-col items-center gap-2">
+                                        <AvatarCanvas char="male" color="#2563eb" />
+                                        <span className="text-[8px] md:text-[10px] text-black font-bold uppercase">
+                                            JAMES{isPizzaLevel ? ' (20)' : ''}
+                                        </span>
+                                    </button>
+                                    <button onClick={() => startLevel(levelNum, 'female')} className="flex flex-col items-center gap-2">
+                                        <AvatarCanvas char="female" color="#f43f5e" />
+                                        <span className="text-[8px] md:text-[10px] text-black font-bold uppercase">
+                                            ROMY{isPizzaLevel ? ' (4)' : ''}
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                    {gameState.status === GameStatus.GAMEOVER && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-black/90 p-4">
+                            <h2 className="text-xl md:text-2xl mb-8 text-red-500 uppercase">MISSION FAILED</h2>
+                            <p className="text-[8px] md:text-[10px] mb-8 text-white uppercase">{gameState.deathReason}</p>
+                            <button onClick={() => startLevel(gameState.levelNumber)} className={btnClass}>RETRY</button>
+                        </div>
+                    )}
+                    {gameState.status === GameStatus.LEVEL_COMPLETE && (() => {
+                        const level = getLevel(gameState.levelNumber);
+                        const completionText = gameState.ritualMessage || level.completionText || "The mission was a success!";
+                        return (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-green-900 text-center p-6">
+                                <h2 className="text-sm md:text-2xl mb-6 uppercase">MISSION COMPLETE!</h2>
+                                <p className="text-[10px] md:text-xs mb-8 uppercase leading-relaxed max-w-xs md:max-w-md">
+                                    {completionText}
+                                </p>
+                                <button onClick={() => setGameState(prev => ({ ...prev, status: GameStatus.MENU }))} className="bg-white text-black px-8 py-3 text-[10px]">RETURN</button>
+                            </div>
+                        );
+                    })()}
+                </div>
+            );
+        };
+
+        const AvatarCanvas = ({ char, color }) => {
+            const ref = useRef(null);
+            useEffect(() => { if (!ref.current) return; const ctx = ref.current.getContext('2d'); ctx.clearRect(0,0,100,100); renderCharacterBase(ctx, char); }, [char]);
+            return <div className={`w-32 h-40 md:w-48 md:h-56 ${color ? '' : (char === 'male' ? 'bg-[#2563eb]' : 'bg-[#f43f5e]')} border-4 border-white flex items-center justify-center`} style={{ backgroundColor: color }}><canvas ref={ref} width="100" height="100" className="scale-150" /></div>;
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
